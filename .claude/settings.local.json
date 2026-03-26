@@ -38,7 +38,8 @@
       "WebSearch",
       "Bash(curl -X POST http://localhost:3001/api/analyze -H \"Content-Type: application/json\" -d \"{\"\"content\"\": \"\"这个面霜成分很天然，敏感肌也能用\\\\n包装太精美了，送人很有面子\"\"}\")",
       "Bash(findstr :3001)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(find E:/TRAE_work/csv/src -type f -name *.ts -o -name *.tsx)"
     ]
   }
 }

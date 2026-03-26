@@ -7,18 +7,25 @@ export interface ChatMessage {
   content: string;
 }
 
+// 分类结果类型
+export interface CategoryResult {
+  category: '成分派' | '包装派' | '效果派' | '价格派' | '其他';
+  confidence: number;
+  reason: string;
+  originalText: string;
+}
+
+// 负面关键词类型
+export interface NegativeKeyword {
+  keyword: string;
+  count: number;
+  examples: string[];
+}
+
+// AI 响应类型
 export interface AIResponse {
-  categories: Array<{
-    category: string;
-    confidence: number;
-    reason: string;
-    originalText: string;
-  }>;
-  negativeKeywords: Array<{
-    keyword: string;
-    count: number;
-    examples: string[];
-  }>;
+  categories: CategoryResult[];
+  negativeKeywords: NegativeKeyword[];
 }
 
 export async function callAI(
@@ -77,12 +84,19 @@ function parseAIResponse(content: string): AIResponse {
 
     // 验证并标准化返回格式
     return {
-      categories: (parsed.categories || []).map((cat: any) => ({
-        category: cat.category || "其他",
-        confidence: Math.min(100, Math.max(0, Number(cat.confidence) || 50)),
-        reason: cat.reason || "",
-        originalText: cat.originalText || ""
-      })),
+      categories: (parsed.categories || []).map((cat: any) => {
+        const category = cat.category || "其他";
+        // 确保分类是有效值
+        const validCategories = ['成分派', '包装派', '效果派', '价格派', '其他'] as const;
+        const finalCategory = validCategories.includes(category) ? category as CategoryResult['category'] : '其他';
+
+        return {
+          category: finalCategory,
+          confidence: Math.min(100, Math.max(0, Number(cat.confidence) || 50)),
+          reason: cat.reason || "",
+          originalText: cat.originalText || ""
+        };
+      }),
       negativeKeywords: (parsed.negativeKeywords || []).map((kw: any) => ({
         keyword: kw.keyword || "",
         count: Number(kw.count) || 1,

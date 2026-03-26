@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import CSVUploader from "@/components/CSVUploader";
+import ProcessProgress from "@/components/ProcessProgress";
+import { aggregateResults } from "@/lib/batch/aggregator";
+import { ChunkResult } from "@/lib/batch/processor";
+import { exportResult } from "@/lib/utils/export";
 
 // 类型定义
 interface Message {
@@ -30,6 +35,7 @@ interface AnalysisResult {
     categoryDistribution: Record<string, number>;
   };
   negativeKeywords: NegativeKeyword[];
+  failedChunks?: number[];
 }
 
 // 分类颜色映射
@@ -45,10 +51,10 @@ const categoryColors: Record<string, { bg: string; text: string; border: string;
 const suggestions = [
   { icon: "📊", text: "分析护肤品评论：成分安全、包装精美、效果明显、价格合理" },
   { icon: "🔍", text: "提取负面反馈：太贵、没效果、过敏、味道难闻、质地油腻" },
-  { icon: "📈", text: "批量分析社媒数据，自动归类用户关注点" }
+  { icon: "📁", text: "上传 CSV 文件批量分析（支持 500-10000 行数据）" }
 ];
 
-// 示例数据 - 差异化验证数据
+// 示例数据
 const sampleData = `这个面霜成分很天然，没有添加剂，敏感肌也能用
 包装太精美了，送人很有面子，瓶子设计很好看
 用了两周，美白效果明显，皮肤变好了很多
@@ -64,10 +70,23 @@ const sampleData = `这个面霜成分很天然，没有添加剂，敏感肌也
 假货，不要买，被骗了
 温和不刺激，成分很安全，用着放心`;
 
+// 批量处理状态
+interface BatchState {
+  isProcessing: boolean;
+  chunks: string[];
+  currentIndex: number;
+  totalChunks: number;
+  totalRows: number;
+  results: ChunkResult[];
+  startTime: number;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showUploader, setShowUploader] = useState(false);
+  const [batchState, setBatchState] = useState<BatchState | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -99,6 +118,7 @@ export default function Home() {
   const handleSend = async (content: string) => {
     if (!content.trim()) return;
 
+    setShowUploader(false);
     const userMessage: Message = {
       id: generateId(),
       type: "user",
@@ -130,8 +150,104 @@ export default function Home() {
     }
   };
 
+  // CSV 上传成功回调
+  const handleCSVUpload = async (data: {
+    totalRows: number;
+    totalChunks: number;
+    chunks: string[];
+  }) => {
+    setShowUploader(false);
+
+    // 添加用户消息
+    const userMessage: Message = {
+      id: generateId(),
+      type: "user",
+      content: `上传了 CSV 文件，共 ${data.totalRows} 条数据，分为 ${data.totalChunks} 个批次处理`
+    };
+    setMessages([userMessage]);
+
+    // 初始化批量处理状态
+    setBatchState({
+      isProcessing: true,
+      chunks: data.chunks,
+      currentIndex: 0,
+      totalChunks: data.totalChunks,
+      totalRows: data.totalRows,
+      results: [],
+      startTime: Date.now()
+    });
+  };
+
+  // 批量处理循环
+  useEffect(() => {
+    if (!batchState || !batchState.isProcessing) return;
+
+    const processNextBatch = async () => {
+      try {
+        const remainingChunks = batchState.chunks.slice(batchState.currentIndex);
+
+        if (remainingChunks.length === 0) {
+          // 全部处理完成，聚合结果
+          const aggregated = aggregateResults(
+            batchState.results,
+            batchState.chunks.map(c => c.split('\n').filter(l => l.trim()))
+          );
+
+          const botMessage: Message = {
+            id: generateId(),
+            type: "bot",
+            content: `已完成对 ${batchState.totalRows} 条社媒内容的分析，以下是分析结果：${aggregated.failedChunks.length > 0 ? `（有 ${aggregated.failedChunks.length} 个分块处理失败）` : ''}`,
+            analysis: aggregated
+          };
+          setMessages(prev => [...prev, botMessage]);
+          setBatchState(null);
+          return;
+        }
+
+        // 处理下一批
+        const response = await fetch("/api/batch/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chunks: remainingChunks,
+            startIndex: batchState.currentIndex
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || "处理失败");
+        }
+
+        // 更新状态
+        setBatchState(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            currentIndex: result.nextIndex,
+            results: [...prev.results, ...result.results]
+          };
+        });
+      } catch (error) {
+        console.error("批量处理错误:", error);
+        const errorMessage: Message = {
+          id: generateId(),
+          type: "bot",
+          content: error instanceof Error ? error.message : "批量处理失败，请重新上传文件"
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        setBatchState(null);
+      }
+    };
+
+    processNextBatch();
+  }, [batchState]);
+
   const handleSuggestionClick = (suggestionText: string) => {
-    if (suggestionText.includes("批量分析")) {
+    if (suggestionText.includes("CSV")) {
+      setShowUploader(true);
+    } else if (suggestionText.includes("批量分析")) {
       setInputValue(sampleData);
     } else {
       handleSend(suggestionText);
@@ -141,6 +257,16 @@ export default function Home() {
   const handleNewChat = () => {
     setMessages([]);
     setInputValue("");
+    setShowUploader(false);
+    setBatchState(null);
+  };
+
+  // 导出结果
+  const handleExport = (format: 'csv' | 'json') => {
+    const lastAnalysis = messages.filter(m => m.analysis).pop()?.analysis;
+    if (lastAnalysis) {
+      exportResult(lastAnalysis as any, format);
+    }
   };
 
   return (
@@ -155,7 +281,7 @@ export default function Home() {
           </div>
           <span className="text-base font-semibold text-[#333333]">社媒内容分析 Bot</span>
         </div>
-        <button 
+        <button
           onClick={handleNewChat}
           className="px-4 py-2 text-sm text-[#333333] border border-[#EAEAEA] rounded-full hover:bg-gray-50 transition-all"
         >
@@ -176,22 +302,56 @@ export default function Home() {
             <p className="text-sm text-[#888888] mb-8 text-center max-w-md">
               自动归类社媒内容为「成分派」「包装派」「效果派」「价格派」，并提取负面吐槽关键词
             </p>
-            
-            <div className="w-full max-w-2xl space-y-3">
-              {suggestions.map((item, index) => (
+
+            {/* CSV 上传区域 */}
+            {showUploader ? (
+              <div className="w-full max-w-2xl">
+                <CSVUploader
+                  onUpload={handleCSVUpload}
+                  onError={(error) => {
+                    setMessages([{
+                      id: generateId(),
+                      type: "bot",
+                      content: error
+                    }]);
+                    setShowUploader(false);
+                  }}
+                />
                 <button
-                  key={index}
-                  onClick={() => handleSuggestionClick(item.text)}
-                  className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border border-[#EAEAEA] text-left hover:shadow-md hover:border-blue-300 transition-all"
+                  onClick={() => setShowUploader(false)}
+                  className="mt-4 text-sm text-gray-500 hover:text-gray-700"
                 >
-                  <span className="text-2xl">{item.icon}</span>
-                  <span className="text-sm text-[#333333]">{item.text}</span>
+                  取消上传
                 </button>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="w-full max-w-2xl space-y-3">
+                {suggestions.map((item, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSuggestionClick(item.text)}
+                    className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border border-[#EAEAEA] text-left hover:shadow-md hover:border-blue-300 transition-all"
+                  >
+                    <span className="text-2xl">{item.icon}</span>
+                    <span className="text-sm text-[#333333]">{item.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <div className="py-6 space-y-6 max-w-4xl mx-auto">
+            {/* 批量处理进度 */}
+            {batchState && batchState.isProcessing && (
+              <ProcessProgress
+                current={batchState.currentIndex}
+                total={batchState.totalChunks}
+                processedRows={batchState.results.reduce((sum, r) => sum + (r.success ? r.result?.categories.length || 0 : 0), 0)}
+                totalRows={batchState.totalRows}
+                startTime={batchState.startTime}
+              />
+            )}
+
             {messages.map((message) => (
               <div key={message.id}>
                 {message.type === "user" ? (
@@ -211,9 +371,25 @@ export default function Home() {
                       <div className="bg-white rounded-2xl rounded-tl-sm px-5 py-3 shadow-sm border border-[#EAEAEA]">
                         <p className="text-sm text-[#333333] leading-relaxed">{message.content}</p>
                       </div>
-                      
+
                       {message.analysis && (
                         <div className="mt-4 space-y-4">
+                          {/* 导出按钮 */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleExport('csv')}
+                              className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              📥 导出 CSV
+                            </button>
+                            <button
+                              onClick={() => handleExport('json')}
+                              className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              📥 导出 JSON
+                            </button>
+                          </div>
+
                           {/* 分类统计 */}
                           <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
                             <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
@@ -223,8 +399,8 @@ export default function Home() {
                               <div className="grid grid-cols-5 gap-3 mb-4">
                                 {Object.entries(message.analysis.summary.categoryDistribution).map(([cat, count]) => {
                                   const colors = categoryColors[cat];
-                                  const percentage = message.analysis!.summary.total > 0 
-                                    ? Math.round((count / message.analysis!.summary.total) * 100) 
+                                  const percentage = message.analysis!.summary.total > 0
+                                    ? Math.round((count / message.analysis!.summary.total) * 100)
                                     : 0;
                                   return (
                                     <div key={cat} className={`${colors.bg} ${colors.border} border rounded-lg p-3 text-center`}>
@@ -243,8 +419,8 @@ export default function Home() {
                             <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
                               <h4 className="text-sm font-semibold text-[#333333]">📝 详细分类</h4>
                             </div>
-                            <div className="divide-y divide-[#EAEAEA]">
-                              {message.analysis.categories.slice(0, 5).map((cat, idx) => {
+                            <div className="divide-y divide-[#EAEAEA] max-h-80 overflow-y-auto">
+                              {message.analysis.categories.slice(0, 10).map((cat, idx) => {
                                 const colors = categoryColors[cat.category];
                                 return (
                                   <div key={idx} className="px-5 py-3 flex items-center justify-between">
@@ -252,11 +428,11 @@ export default function Home() {
                                       <span className={`px-2 py-1 text-xs font-medium rounded-lg ${colors.bg} ${colors.text}`}>
                                         {cat.category}
                                       </span>
-                                      <span className="text-xs text-[#888888]">{cat.reason}</span>
+                                      <span className="text-xs text-[#888888] max-w-xs truncate">{cat.reason}</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                        <div 
+                                        <div
                                           className="h-full bg-blue-500 rounded-full"
                                           style={{ width: `${cat.confidence}%` }}
                                         />
@@ -266,9 +442,9 @@ export default function Home() {
                                   </div>
                                 );
                               })}
-                              {message.analysis.categories.length > 5 && (
+                              {message.analysis.categories.length > 10 && (
                                 <div className="px-5 py-2 text-center text-xs text-[#888888]">
-                                  ...还有 {message.analysis.categories.length - 5} 条数据
+                                  ...还有 {message.analysis.categories.length - 10} 条数据，请导出查看完整结果
                                 </div>
                               )}
                             </div>
@@ -277,7 +453,7 @@ export default function Home() {
                           {/* 负面关键词 */}
                           <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
                             <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                              <h4 className="text-sm font-semibold text-[#333333]">⚠️ 负面吐槽 Top 3</h4>
+                              <h4 className="text-sm font-semibold text-[#333333]">⚠️ 负面吐槽 Top {message.analysis.negativeKeywords.length}</h4>
                             </div>
                             <div className="divide-y divide-[#EAEAEA]">
                               {message.analysis.negativeKeywords.map((kw, idx) => (
@@ -309,7 +485,7 @@ export default function Home() {
                 )}
               </div>
             ))}
-            
+
             {isLoading && (
               <div className="flex gap-3">
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -326,7 +502,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -350,7 +526,16 @@ export default function Home() {
               rows={1}
               style={{ height: "auto" }}
             />
-            <button 
+            <button
+              onClick={() => setShowUploader(true)}
+              className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors flex-shrink-0"
+              title="上传 CSV 文件"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </button>
+            <button
               onClick={() => handleSend(inputValue)}
               disabled={!inputValue.trim() || isLoading}
               className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
@@ -361,7 +546,7 @@ export default function Home() {
             </button>
           </div>
           <p className="text-xs text-[#888888] mt-2 text-center">
-            支持批量分析，每行输入一条评论
+            支持批量分析，每行输入一条评论，或点击左侧按钮上传 CSV 文件
           </p>
         </div>
       </footer>
