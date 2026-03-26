@@ -1,6 +1,6 @@
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const API_KEY = process.env.OPENROUTER_API_KEY || "";
-const MODEL = "openai/gpt-4o-mini";
+const MODEL = process.env.OPENROUTER_MODEL || "google/gemini-3-flash-preview";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";

@@ -32,7 +32,13 @@
       "Bash(git clean:*)",
       "Bash(cd:*)",
       "Bash(powershell.exe -Command \"Remove-Item -Path 'E:\\\\TRAE_work\\\\csv\\\\image-bot' -Recurse -Force\" 2>&1)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebSearch",
+      "Bash(curl -X POST http://localhost:3001/api/analyze -H \"Content-Type: application/json\" -d \"{\"\"content\"\": \"\"这个面霜成分很天然，敏感肌也能用\\\\n包装太精美了，送人很有面子\"\"}\")",
+      "Bash(findstr :3001)",
+      "Bash(curl:*)"
     ]
   }
 }
