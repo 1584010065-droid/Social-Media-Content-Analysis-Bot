@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
     // 读取文件内容
     const text = await file.text();
 
-    // 解析 CSV
-    const { headers, rows, totalRows } = parseCSV(text);
+    // 解析 CSV（自动检测评论列）
+    const { headers, rows, totalRows, commentColumnIndex, commentColumnName } = parseCSV(text);
 
     if (totalRows === 0) {
       return NextResponse.json({ error: 'CSV 文件为空或没有有效的评论数据' }, { status: 400 });
@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
         totalChunks: chunks.length,
         rowsPerChunk: CHUNK_CONFIG.MAX_ROWS_PER_CHUNK,
         chunks: chunks.map((chunk) => chunk.join('\n')),
+        commentColumnIndex,
+        commentColumnName,
       },
     });
   } catch (error) {

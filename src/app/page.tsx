@@ -155,14 +155,18 @@ export default function Home() {
     totalRows: number;
     totalChunks: number;
     chunks: string[];
+    commentColumnName?: string;
   }) => {
     setShowUploader(false);
 
     // 添加用户消息
+    const columnInfo = data.commentColumnName
+      ? `（自动识别评论列：${data.commentColumnName}）`
+      : '';
     const userMessage: Message = {
       id: generateId(),
       type: "user",
-      content: `上传了 CSV 文件，共 ${data.totalRows} 条数据，分为 ${data.totalChunks} 个批次处理`
+      content: `上传了 CSV 文件，共 ${data.totalRows} 条数据，分为 ${data.totalChunks} 个批次处理${columnInfo}`
     };
     setMessages([userMessage]);
 

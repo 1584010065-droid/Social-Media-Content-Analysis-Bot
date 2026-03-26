@@ -48,3 +48,8 @@ next-env.d.ts
 
 # OS
 Thumbs.db
+
+# Data files
+DOC/
+*.csv
+!example.csv

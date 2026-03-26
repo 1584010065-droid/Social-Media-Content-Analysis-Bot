@@ -7,6 +7,7 @@ interface CSVUploaderProps {
     totalRows: number;
     totalChunks: number;
     chunks: string[];
+    commentColumnName?: string;
   }) => void;
   onError: (error: string) => void;
   disabled?: boolean;
@@ -45,6 +46,7 @@ export default function CSVUploader({
           totalRows: result.data.totalRows,
           totalChunks: result.data.totalChunks,
           chunks: result.data.chunks,
+          commentColumnName: result.data.commentColumnName,
         });
       } catch (error) {
         onError('上传失败，请检查网络连接');

@@ -7,12 +7,55 @@ export interface ParsedCSV {
   headers: string[];
   rows: string[];
   totalRows: number;
+  commentColumnIndex: number;
+  commentColumnName: string;
+}
+
+// 可能的评论内容列名（按优先级排序）
+const COMMENT_COLUMN_NAMES = [
+  '内容',
+  '评论',
+  '评论内容',
+  '评论正文',
+  '正文',
+  'content',
+  'text',
+  'comment',
+  'body',
+  '文本',
+  '描述',
+  '简介',
+  '摘要',
+];
+
+/**
+ * 智能检测评论内容所在的列
+ */
+function detectCommentColumn(headers: string[]): number {
+  // 1. 精确匹配
+  for (const name of COMMENT_COLUMN_NAMES) {
+    const idx = headers.findIndex(
+      (h) => h.toLowerCase() === name.toLowerCase()
+    );
+    if (idx !== -1) return idx;
+  }
+
+  // 2. 模糊匹配（包含关键词）
+  for (const name of COMMENT_COLUMN_NAMES) {
+    const idx = headers.findIndex((h) =>
+      h.toLowerCase().includes(name.toLowerCase())
+    );
+    if (idx !== -1) return idx;
+  }
+
+  // 3. 默认返回第一列
+  return 0;
 }
 
 /**
  * 解析 CSV 文件内容
  * @param text CSV 文件文本内容
- * @param commentColumn 评论所在的列名或列索引（默认取第一列）
+ * @param commentColumn 评论所在的列名或列索引（可选，默认自动检测）
  */
 export function parseCSV(
   text: string,
@@ -25,7 +68,7 @@ export function parseCSV(
   const lines = cleanText.split(/\r?\n/).filter((line) => line.trim());
 
   if (lines.length === 0) {
-    return { headers: [], rows: [], totalRows: 0 };
+    return { headers: [], rows: [], totalRows: 0, commentColumnIndex: 0, commentColumnName: '' };
   }
 
   // 解析第一行作为表头
@@ -39,10 +82,18 @@ export function parseCSV(
     );
     if (idx !== -1) {
       commentIndex = idx;
+    } else {
+      // 尝试模糊匹配
+      commentIndex = detectCommentColumn(headers);
     }
   } else if (typeof commentColumn === 'number') {
     commentIndex = commentColumn;
+  } else {
+    // 自动检测评论列
+    commentIndex = detectCommentColumn(headers);
   }
+
+  const commentColumnName = headers[commentIndex] || '';
 
   // 解析数据行
   const rows: string[] = [];
@@ -60,6 +111,8 @@ export function parseCSV(
     headers,
     rows,
     totalRows: rows.length,
+    commentColumnIndex: commentIndex,
+    commentColumnName,
   };
 }
 
