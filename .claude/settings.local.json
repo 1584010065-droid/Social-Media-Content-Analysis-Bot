@@ -3,7 +3,36 @@
     "allow": [
       "Bash(du -sh ./*)",
       "Bash(git init)",
-      "Bash(git add .)"
+      "Bash(git add .)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Social Media Content Analysis Bot\n\n- Added image-bot module\n- Added social-analyzer-bot module\n- Added API server and documentation\n- Configured .gitignore for Node.js projects\nEOF\n\\)\")",
+      "Bash(git remote add origin https://github.com/1584010065-droid/Social-Media-Content-Analysis-Bot.git)",
+      "Bash(git remote set-url origin https://github.com/1584010065-droid/Social-Media-Content-Analysis-Bot.git)",
+      "Bash(git push -u origin main)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s http://localhost:8787)",
+      "Bash(taskkill /F /PID 30172)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(git checkout:*)",
+      "Bash(taskkill:*)",
+      "Bash(tskill 18900)",
+      "Bash(kill -9 18900)",
+      "Bash(curl -s http://localhost:3001)",
+      "Bash(grep -v \"^\\\\.git$\")",
+      "Bash(grep -v \"^social-analyzer-bot$\")",
+      "Bash(grep -v \"^\\\\.claude$\")",
+      "Bash(mv /e/TRAE_work/csv/image-bot /tmp/image-bot-deleted)",
+      "Bash(rm -rf /tmp/image-bot-deleted)",
+      "Bash(rmdir /s /q \"E:\\\\TRAE_work\\\\csv\\\\image-bot\")",
+      "Bash(rd /s /q \"E:\\\\TRAE_work\\\\csv\\\\image-bot\")",
+      "Bash(git clean:*)",
+      "Bash(cd:*)",
+      "Bash(powershell.exe -Command \"Remove-Item -Path 'E:\\\\TRAE_work\\\\csv\\\\image-bot' -Recurse -Force\" 2>&1)",
+      "Bash(git reset:*)"
     ]
   }
 }
