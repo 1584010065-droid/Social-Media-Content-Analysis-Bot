@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseCSV, validateCSVFile } from '@/lib/utils/csv';
-import { createChunks, CHUNK_CONFIG } from '@/lib/batch/processor';
+import { createChunksWithLineNumbers, CHUNK_CONFIG, ChunkWithLineNumbers } from '@/lib/batch/processor';
 
 // 最大行数限制
 const MAX_ROWS = 10000;
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const text = await file.text();
 
     // 解析 CSV（自动检测评论列）
-    const { headers, rows, totalRows, commentColumnIndex, commentColumnName } = parseCSV(text);
+    const { headers, rowsWithLineNumbers, totalRows, commentColumnIndex, commentColumnName } = parseCSV(text);
 
     if (totalRows === 0) {
       return NextResponse.json({ error: 'CSV 文件为空或没有有效的评论数据' }, { status: 400 });
@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 创建分块
-    const chunks = createChunks(rows);
+    // 创建带行号的分块
+    const chunks = createChunksWithLineNumbers(rowsWithLineNumbers);
 
     // 返回分块信息
     return NextResponse.json({
@@ -48,7 +48,13 @@ export async function POST(request: NextRequest) {
         totalRows,
         totalChunks: chunks.length,
         rowsPerChunk: CHUNK_CONFIG.MAX_ROWS_PER_CHUNK,
-        chunks: chunks.map((chunk) => chunk.join('\n')),
+        // 返回带行号的分块数据
+        chunks: chunks.map((chunk) => ({
+          lines: chunk.lines,
+          lineNumbers: chunk.lineNumbers,
+          // 兼容旧格式：合并为字符串
+          content: chunk.lines.join('\n'),
+        })),
         commentColumnIndex,
         commentColumnName,
       },

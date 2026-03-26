@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import CSVUploader from "@/components/CSVUploader";
 import ProcessProgress from "@/components/ProcessProgress";
-import { aggregateResults } from "@/lib/batch/aggregator";
-import { ChunkResult } from "@/lib/batch/processor";
+import { aggregateResultsWithLineNumbers, AggregatedResult } from "@/lib/batch/aggregator";
+import { ChunkResult, ChunkWithLineNumbers } from "@/lib/batch/processor";
 import { exportResult } from "@/lib/utils/export";
 
 // 类型定义
@@ -16,6 +16,7 @@ interface Message {
 }
 
 interface CategoryResult {
+  lineNumber: number;
   category: "成分派" | "包装派" | "效果派" | "价格派" | "其他";
   confidence: number;
   reason: string;
@@ -70,10 +71,17 @@ const sampleData = `这个面霜成分很天然，没有添加剂，敏感肌也
 假货，不要买，被骗了
 温和不刺激，成分很安全，用着放心`;
 
+// 分块数据类型（新格式）
+interface ChunkData {
+  lines: string[];
+  lineNumbers: number[];
+  content: string;
+}
+
 // 批量处理状态
 interface BatchState {
   isProcessing: boolean;
-  chunks: string[];
+  chunks: ChunkData[];
   currentIndex: number;
   totalChunks: number;
   totalRows: number;
@@ -154,7 +162,7 @@ export default function Home() {
   const handleCSVUpload = async (data: {
     totalRows: number;
     totalChunks: number;
-    chunks: string[];
+    chunks: ChunkData[];
     commentColumnName?: string;
   }) => {
     setShowUploader(false);
@@ -192,9 +200,13 @@ export default function Home() {
 
         if (remainingChunks.length === 0) {
           // 全部处理完成，聚合结果
-          const aggregated = aggregateResults(
+          const chunkWithLineNumbers: ChunkWithLineNumbers[] = batchState.chunks.map(c => ({
+            lines: c.lines,
+            lineNumbers: c.lineNumbers,
+          }));
+          const aggregated = aggregateResultsWithLineNumbers(
             batchState.results,
-            batchState.chunks.map(c => c.split('\n').filter(l => l.trim()))
+            chunkWithLineNumbers
           );
 
           const botMessage: Message = {
@@ -272,6 +284,39 @@ export default function Home() {
       exportResult(lastAnalysis as any, format);
     }
   };
+
+  // 搜索状态
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+
+  // 搜索结果（使用 useMemo 缓存，带防抖效果）
+  const searchResults = useMemo(() => {
+    const lastAnalysis = messages.filter(m => m.analysis).pop()?.analysis;
+    if (!lastAnalysis || !searchQuery.trim()) return [];
+
+    const query = searchQuery.toLowerCase().trim();
+    const isLineNumberSearch = /^\d+$/.test(query);
+    const lineNumber = isLineNumberSearch ? parseInt(query, 10) : null;
+
+    return lastAnalysis.categories.filter((cat) => {
+      if (isLineNumberSearch) {
+        // 按行号搜索
+        return cat.lineNumber === lineNumber;
+      }
+      // 按内容搜索
+      return (
+        cat.originalText.toLowerCase().includes(query) ||
+        cat.category.toLowerCase().includes(query) ||
+        cat.reason.toLowerCase().includes(query)
+      );
+    }).slice(0, 100); // 限制结果数量
+  }, [messages, searchQuery]);
+
+  // 清除搜索
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setShowSearch(false);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-[#F8F8F9]">
@@ -379,7 +424,7 @@ export default function Home() {
                       {message.analysis && (
                         <div className="mt-4 space-y-4">
                           {/* 导出按钮 */}
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <button
                               onClick={() => handleExport('csv')}
                               className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -392,7 +437,76 @@ export default function Home() {
                             >
                               📥 导出 JSON
                             </button>
+                            <button
+                              onClick={() => setShowSearch(!showSearch)}
+                              className="px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              🔍 搜索
+                            </button>
                           </div>
+
+                          {/* 搜索框 */}
+                          {showSearch && (
+                            <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
+                              <div className="p-4">
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="输入行号、关键词或评论内容搜索..."
+                                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={clearSearch}
+                                    className="px-3 py-2 text-xs text-gray-500 hover:text-gray-700"
+                                  >
+                                    清除
+                                  </button>
+                                </div>
+                                {searchQuery.trim() && (
+                                  <div className="mt-3 text-sm text-gray-600">
+                                    找到 <span className="font-medium text-blue-600">{searchResults.length}</span> 条匹配结果
+                                    {searchResults.length >= 100 && (
+                                      <span className="text-gray-400">（仅显示前 100 条）</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {searchQuery.trim() && searchResults.length > 0 && (
+                                <div className="border-t border-gray-100 max-h-64 overflow-y-auto">
+                                  {searchResults.map((cat, idx) => {
+                                    const colors = categoryColors[cat.category];
+                                    return (
+                                      <div key={idx} className="px-4 py-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded">
+                                            行 {cat.lineNumber}
+                                          </span>
+                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${colors.bg} ${colors.text}`}>
+                                            {cat.category}
+                                          </span>
+                                          <span className="text-xs text-gray-400">
+                                            {cat.confidence}%
+                                          </span>
+                                        </div>
+                                        <p className="text-sm text-gray-700 line-clamp-2">{cat.originalText}</p>
+                                        {cat.reason && (
+                                          <p className="text-xs text-gray-500 mt-1">{cat.reason}</p>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {searchQuery.trim() && searchResults.length === 0 && (
+                                <div className="px-4 py-6 text-center text-sm text-gray-500 border-t border-gray-100">
+                                  未找到匹配结果
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* 分类统计 */}
                           <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
@@ -429,6 +543,9 @@ export default function Home() {
                                 return (
                                   <div key={idx} className="px-5 py-3 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
+                                      <span className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
+                                        {cat.lineNumber || '-'}
+                                      </span>
                                       <span className={`px-2 py-1 text-xs font-medium rounded-lg ${colors.bg} ${colors.text}`}>
                                         {cat.category}
                                       </span>

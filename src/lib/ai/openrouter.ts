@@ -9,6 +9,7 @@ export interface ChatMessage {
 
 // 分类结果类型
 export interface CategoryResult {
+  lineNumber: number;  // CSV 文件中的行号（从 2 开始）
   category: '成分派' | '包装派' | '效果派' | '价格派' | '其他';
   confidence: number;
   reason: string;
@@ -94,7 +95,8 @@ function parseAIResponse(content: string): AIResponse {
           category: finalCategory,
           confidence: Math.min(100, Math.max(0, Number(cat.confidence) || 50)),
           reason: cat.reason || "",
-          originalText: cat.originalText || ""
+          originalText: cat.originalText || "",
+          lineNumber: 0,  // 默认值，由调用方设置实际行号
         };
       }),
       negativeKeywords: (parsed.negativeKeywords || []).map((kw: any) => ({

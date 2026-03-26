@@ -3,9 +3,16 @@
  * 支持标准 CSV 格式，正确处理中文字符和引号
  */
 
+// 带行号的解析结果
+export interface ParsedRow {
+  lineNumber: number;  // CSV 文件中的行号（从 2 开始，1 是表头）
+  content: string;     // 评论内容
+}
+
 export interface ParsedCSV {
   headers: string[];
-  rows: string[];
+  rows: string[];           // 兼容旧格式：纯文本数组
+  rowsWithLineNumbers: ParsedRow[];  // 新格式：带行号的数据
   totalRows: number;
   commentColumnIndex: number;
   commentColumnName: string;
@@ -68,7 +75,14 @@ export function parseCSV(
   const lines = cleanText.split(/\r?\n/).filter((line) => line.trim());
 
   if (lines.length === 0) {
-    return { headers: [], rows: [], totalRows: 0, commentColumnIndex: 0, commentColumnName: '' };
+    return {
+      headers: [],
+      rows: [],
+      rowsWithLineNumbers: [],
+      totalRows: 0,
+      commentColumnIndex: 0,
+      commentColumnName: ''
+    };
   }
 
   // 解析第一行作为表头
@@ -95,14 +109,21 @@ export function parseCSV(
 
   const commentColumnName = headers[commentIndex] || '';
 
-  // 解析数据行
+  // 解析数据行（带行号）
   const rows: string[] = [];
+  const rowsWithLineNumbers: ParsedRow[] = [];
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i]);
     if (values.length > commentIndex) {
       const comment = values[commentIndex].trim();
       if (comment) {
         rows.push(comment);
+        // 行号 = i + 1（因为 lines[0] 是表头，对应 CSV 第 1 行）
+        // 所以数据从 CSV 第 2 行开始，行号 = i + 1
+        rowsWithLineNumbers.push({
+          lineNumber: i + 1,
+          content: comment,
+        });
       }
     }
   }
@@ -110,6 +131,7 @@ export function parseCSV(
   return {
     headers,
     rows,
+    rowsWithLineNumbers,
     totalRows: rows.length,
     commentColumnIndex: commentIndex,
     commentColumnName,

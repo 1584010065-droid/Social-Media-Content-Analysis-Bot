@@ -5,6 +5,7 @@
 
 import { callAI, AIResponse, CategoryResult, NegativeKeyword } from '../ai/openrouter';
 import { SYSTEM_PROMPT } from '../prompts/system';
+import { ParsedRow } from '../utils/csv';
 
 // 重新导出类型供其他模块使用
 export type { AIResponse, CategoryResult, NegativeKeyword };
@@ -30,12 +31,19 @@ export const BATCH_CONFIG = {
   CONCURRENCY: 3, // 并发数
 };
 
+// 带行号的分块
+export interface ChunkWithLineNumbers {
+  lines: string[];         // 评论内容
+  lineNumbers: number[];   // 对应的行号
+}
+
 // 分块结果
 export interface ChunkResult {
   chunkIndex: number;
   success: boolean;
   result?: AIResponse;
   error?: string;
+  lineNumbers?: number[];  // 该分块的行号
 }
 
 // 处理进度
@@ -48,7 +56,52 @@ export interface ProcessProgress {
 }
 
 /**
- * 创建分块
+ * 创建分块（带行号）
+ */
+export function createChunksWithLineNumbers(rows: ParsedRow[]): ChunkWithLineNumbers[] {
+  const chunks: ChunkWithLineNumbers[] = [];
+  let currentLines: string[] = [];
+  let currentLineNumbers: number[] = [];
+  let currentOutputTokens = 0;
+
+  for (const row of rows) {
+    const estimatedOutput = CHUNK_CONFIG.ESTIMATED_OUTPUT_PER_ROW;
+
+    // 检查是否需要开始新块
+    if (
+      currentLines.length >= CHUNK_CONFIG.MAX_ROWS_PER_CHUNK ||
+      (currentOutputTokens + estimatedOutput) >
+        CHUNK_CONFIG.MAX_OUTPUT_TOKENS * CHUNK_CONFIG.SAFETY_MARGIN
+    ) {
+      if (currentLines.length > 0) {
+        chunks.push({
+          lines: currentLines,
+          lineNumbers: currentLineNumbers,
+        });
+      }
+      currentLines = [row.content];
+      currentLineNumbers = [row.lineNumber];
+      currentOutputTokens = estimatedOutput;
+    } else {
+      currentLines.push(row.content);
+      currentLineNumbers.push(row.lineNumber);
+      currentOutputTokens += estimatedOutput;
+    }
+  }
+
+  // 处理最后一块
+  if (currentLines.length > 0) {
+    chunks.push({
+      lines: currentLines,
+      lineNumbers: currentLineNumbers,
+    });
+  }
+
+  return chunks;
+}
+
+/**
+ * 创建分块（兼容旧格式）
  */
 export function createChunks(rows: string[]): string[][] {
   const chunks: string[][] = [];
@@ -160,6 +213,48 @@ export async function processChunk(
 }
 
 /**
+ * 处理带行号的分块
+ */
+export async function processChunkWithLineNumbers(
+  chunk: ChunkWithLineNumbers,
+  chunkIndex: number
+): Promise<ChunkResult> {
+  try {
+    const content = chunk.lines.join('\n');
+    const result = await callAIWithRetry(content);
+
+    // 为每个分类结果附加行号
+    // 通过 originalText 匹配对应的行号
+    const lineNumberMap = new Map<string, number>();
+    chunk.lines.forEach((line, idx) => {
+      lineNumberMap.set(line.trim(), chunk.lineNumbers[idx]);
+    });
+
+    // 更新 categories 中的 lineNumber
+    if (result.categories) {
+      result.categories = result.categories.map((cat) => ({
+        ...cat,
+        lineNumber: lineNumberMap.get(cat.originalText.trim()) || 0,
+      }));
+    }
+
+    return {
+      chunkIndex,
+      success: true,
+      result,
+      lineNumbers: chunk.lineNumbers,
+    };
+  } catch (error) {
+    return {
+      chunkIndex,
+      success: false,
+      error: error instanceof Error ? error.message : '处理失败',
+      lineNumbers: chunk.lineNumbers,
+    };
+  }
+}
+
+/**
  * 并发处理多个分块
  */
 export async function processChunksBatch(
@@ -199,15 +294,55 @@ export async function processChunksBatch(
 }
 
 /**
+ * 并发处理带行号的分块
+ */
+export async function processChunksBatchWithLineNumbers(
+  chunks: ChunkWithLineNumbers[],
+  startIndex: number,
+  onProgress?: (progress: ProcessProgress) => void
+): Promise<ChunkResult[]> {
+  const results: ChunkResult[] = [];
+
+  // 分批并发处理
+  for (let i = 0; i < chunks.length; i += BATCH_CONFIG.CONCURRENCY) {
+    const batch = chunks.slice(i, i + BATCH_CONFIG.CONCURRENCY);
+    const batchPromises = batch.map((chunk, batchIndex) =>
+      processChunkWithLineNumbers(chunk, startIndex + i + batchIndex)
+    );
+
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+
+    // 更新进度
+    if (onProgress) {
+      const processedCount = results.length;
+      onProgress({
+        currentChunk: processedCount,
+        totalChunks: chunks.length,
+        processedRows: results.reduce(
+          (sum, r) => sum + (r.success ? r.result?.categories.length || 0 : 0),
+          0
+        ),
+        totalRows: chunks.reduce((sum, c) => sum + c.lines.length, 0),
+        percentage: (processedCount / chunks.length) * 100,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
  * 创建降级结果（当处理失败时）
  */
-export function createFallbackResult(chunk: string[]): AIResponse {
+export function createFallbackResult(chunk: string[], lineNumbers?: number[]): AIResponse {
   return {
-    categories: chunk.map((text) => ({
+    categories: chunk.map((text, idx) => ({
       category: '其他' as const,
       confidence: 0,
       reason: '分析失败，请手动检查',
       originalText: text,
+      lineNumber: lineNumbers?.[idx] || 0,
     })),
     negativeKeywords: [],
   };

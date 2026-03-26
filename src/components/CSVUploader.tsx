@@ -2,11 +2,18 @@
 
 import { useCallback, useState, useRef } from 'react';
 
+// 分块数据类型
+interface ChunkData {
+  lines: string[];
+  lineNumbers: number[];
+  content: string;
+}
+
 interface CSVUploaderProps {
   onUpload: (data: {
     totalRows: number;
     totalChunks: number;
-    chunks: string[];
+    chunks: ChunkData[];
     commentColumnName?: string;
   }) => void;
   onError: (error: string) => void;

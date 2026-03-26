@@ -9,12 +9,13 @@ import { AggregatedResult } from '../batch/aggregator';
  * 导出为 CSV 格式
  */
 export function exportToCSV(result: AggregatedResult): string {
-  const headers = ['原文', '分类', '置信度', '理由'];
+  const headers = ['行号', '原文', '分类', '置信度', '理由'];
   const rows: string[][] = [];
 
   // 添加分类结果
   for (const cat of result.categories) {
     rows.push([
+      cat.lineNumber?.toString() || '0',
       escapeCSVField(cat.originalText),
       cat.category,
       cat.confidence.toString(),
@@ -26,20 +27,20 @@ export function exportToCSV(result: AggregatedResult): string {
   rows.push([]);
 
   // 添加统计摘要
-  rows.push(['=== 统计摘要 ===', '', '', '']);
-  rows.push(['总评论数', result.summary.total.toString(), '', '']);
-  rows.push(['成分派', result.summary.categoryDistribution['成分派'].toString(), '', '']);
-  rows.push(['包装派', result.summary.categoryDistribution['包装派'].toString(), '', '']);
-  rows.push(['效果派', result.summary.categoryDistribution['效果派'].toString(), '', '']);
-  rows.push(['价格派', result.summary.categoryDistribution['价格派'].toString(), '', '']);
-  rows.push(['其他', result.summary.categoryDistribution['其他'].toString(), '', '']);
+  rows.push(['=== 统计摘要 ===', '', '', '', '']);
+  rows.push(['总评论数', result.summary.total.toString(), '', '', '']);
+  rows.push(['成分派', result.summary.categoryDistribution['成分派'].toString(), '', '', '']);
+  rows.push(['包装派', result.summary.categoryDistribution['包装派'].toString(), '', '', '']);
+  rows.push(['效果派', result.summary.categoryDistribution['效果派'].toString(), '', '', '']);
+  rows.push(['价格派', result.summary.categoryDistribution['价格派'].toString(), '', '', '']);
+  rows.push(['其他', result.summary.categoryDistribution['其他'].toString(), '', '', '']);
 
   // 添加空行分隔
   rows.push([]);
 
   // 添加负面关键词
-  rows.push(['=== 负面关键词 Top 10 ===', '', '', '']);
-  rows.push(['关键词', '出现次数', '示例1', '示例2', '示例3']);
+  rows.push(['=== 负面关键词 Top 10 ===', '', '', '', '']);
+  rows.push(['关键词', '出现次数', '示例1', '示例2', '示例3', '']);
   for (const kw of result.negativeKeywords) {
     rows.push([
       kw.keyword,

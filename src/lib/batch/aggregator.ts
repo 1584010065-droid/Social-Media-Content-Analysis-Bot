@@ -8,6 +8,7 @@ import {
   NegativeKeyword,
   AIResponse,
   ChunkResult,
+  ChunkWithLineNumbers,
   createFallbackResult,
 } from './processor';
 
@@ -23,7 +24,67 @@ export interface AggregatedResult {
 }
 
 /**
- * 聚合所有分块结果
+ * 聚合所有分块结果（带行号版本）
+ */
+export function aggregateResultsWithLineNumbers(
+  chunkResults: ChunkResult[],
+  allChunks: ChunkWithLineNumbers[]
+): AggregatedResult {
+  const allCategories: CategoryResult[] = [];
+  const categoryDistribution: Record<string, number> = {
+    成分派: 0,
+    包装派: 0,
+    效果派: 0,
+    价格派: 0,
+    其他: 0,
+  };
+
+  // 负面关键词合并映射
+  const keywordMap = new Map<string, { count: number; examples: string[] }>();
+
+  // 失败的分块索引
+  const failedChunks: number[] = [];
+
+  for (const chunkResult of chunkResults) {
+    if (!chunkResult.success) {
+      failedChunks.push(chunkResult.chunkIndex);
+      // 使用降级结果
+      const chunk = allChunks[chunkResult.chunkIndex];
+      const fallback = createFallbackResult(chunk.lines, chunk.lineNumbers);
+      processAIResponse(fallback, allCategories, categoryDistribution, keywordMap);
+    } else if (chunkResult.result) {
+      processAIResponse(
+        chunkResult.result,
+        allCategories,
+        categoryDistribution,
+        keywordMap
+      );
+    }
+  }
+
+  // 排序并截取 Top 10 负面关键词
+  const negativeKeywords = Array.from(keywordMap.entries())
+    .map(([keyword, data]) => ({
+      keyword,
+      count: data.count,
+      examples: [...new Set(data.examples)].slice(0, 3), // 去重并限制数量
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10); // 返回 Top 10
+
+  return {
+    categories: allCategories,
+    summary: {
+      total: allCategories.length,
+      categoryDistribution,
+    },
+    negativeKeywords,
+    failedChunks,
+  };
+}
+
+/**
+ * 聚合所有分块结果（兼容旧格式）
  */
 export function aggregateResults(
   chunkResults: ChunkResult[],
