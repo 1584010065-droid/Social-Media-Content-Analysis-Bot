@@ -15,16 +15,24 @@ interface Message {
   analysis?: AnalysisResult;
 }
 
+interface SubDimension {
+  dimension: "成分派" | "包装派" | "效果派" | "价格派" | "其他";
+  sentiment: "正向" | "中性" | "负向";
+}
+
 interface CategoryResult {
   lineNumber: number;
-  category: "成分派" | "包装派" | "效果派" | "价格派" | "其他";
+  dimension: "成分派" | "包装派" | "效果派" | "价格派" | "其他";
+  sentiment: "正向" | "中性" | "负向";
+  subDimensions: SubDimension[];
   confidence: number;
   reason: string;
   originalText: string;
 }
 
-interface NegativeKeyword {
-  keyword: string;
+interface NegativeComplaint {
+  dimension: "成分问题" | "包装问题" | "效果问题" | "价格问题" | "笼统负面" | "其他问题";
+  complaint: string;
   count: number;
   examples: string[];
 }
@@ -33,9 +41,10 @@ interface AnalysisResult {
   categories: CategoryResult[];
   summary: {
     total: number;
-    categoryDistribution: Record<string, number>;
+    dimensionDistribution: Record<string, number>;
+    sentimentDistribution: Record<string, number>;
   };
-  negativeKeywords: NegativeKeyword[];
+  negativeComplaints: NegativeComplaint[];
   failedChunks?: number[];
 }
 
@@ -46,6 +55,13 @@ const categoryColors: Record<string, { bg: string; text: string; border: string;
   "效果派": { bg: "bg-green-50", text: "text-green-600", border: "border-green-200", icon: "✨" },
   "价格派": { bg: "bg-orange-50", text: "text-orange-600", border: "border-orange-200", icon: "💰" },
   "其他": { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200", icon: "📝" }
+};
+
+// 情感颜色映射
+const sentimentColors: Record<string, { bg: string; text: string }> = {
+  "正向": { bg: "bg-green-50", text: "text-green-600" },
+  "中性": { bg: "bg-gray-50", text: "text-gray-600" },
+  "负向": { bg: "bg-red-50", text: "text-red-600" }
 };
 
 // 建议示例
@@ -306,7 +322,8 @@ export default function Home() {
       // 按内容搜索
       return (
         cat.originalText.toLowerCase().includes(query) ||
-        cat.category.toLowerCase().includes(query) ||
+        cat.dimension.toLowerCase().includes(query) ||
+        cat.sentiment.toLowerCase().includes(query) ||
         cat.reason.toLowerCase().includes(query)
       );
     }).slice(0, 100); // 限制结果数量
@@ -477,15 +494,19 @@ export default function Home() {
                               {searchQuery.trim() && searchResults.length > 0 && (
                                 <div className="border-t border-gray-100 max-h-64 overflow-y-auto">
                                   {searchResults.map((cat, idx) => {
-                                    const colors = categoryColors[cat.category];
+                                    const dimColors = categoryColors[cat.dimension];
+                                    const sentColors = sentimentColors[cat.sentiment];
                                     return (
                                       <div key={idx} className="px-4 py-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50">
                                         <div className="flex items-center gap-2 mb-1">
                                           <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded">
                                             行 {cat.lineNumber}
                                           </span>
-                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${colors.bg} ${colors.text}`}>
-                                            {cat.category}
+                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${dimColors.bg} ${dimColors.text}`}>
+                                            {cat.dimension}
+                                          </span>
+                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${sentColors.bg} ${sentColors.text}`}>
+                                            {cat.sentiment}
                                           </span>
                                           <span className="text-xs text-gray-400">
                                             {cat.confidence}%
@@ -511,19 +532,43 @@ export default function Home() {
                           {/* 分类统计 */}
                           <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
                             <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                              <h4 className="text-sm font-semibold text-[#333333]">📊 分类统计</h4>
+                              <h4 className="text-sm font-semibold text-[#333333]">📊 维度分布</h4>
                             </div>
                             <div className="p-5">
                               <div className="grid grid-cols-5 gap-3 mb-4">
-                                {Object.entries(message.analysis.summary.categoryDistribution).map(([cat, count]) => {
-                                  const colors = categoryColors[cat];
+                                {Object.entries(message.analysis.summary.dimensionDistribution).map(([dim, count]) => {
+                                  const colors = categoryColors[dim];
                                   const percentage = message.analysis!.summary.total > 0
                                     ? Math.round((count / message.analysis!.summary.total) * 100)
                                     : 0;
                                   return (
-                                    <div key={cat} className={`${colors.bg} ${colors.border} border rounded-lg p-3 text-center`}>
+                                    <div key={dim} className={`${colors.bg} ${colors.border} border rounded-lg p-3 text-center`}>
                                       <div className={`text-lg font-bold ${colors.text}`}>{count}</div>
-                                      <div className={`text-xs ${colors.text} mt-1`}>{cat}</div>
+                                      <div className={`text-xs ${colors.text} mt-1`}>{dim}</div>
+                                      <div className="text-xs text-gray-400 mt-1">{percentage}%</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 情感分布统计 */}
+                          <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
+                            <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
+                              <h4 className="text-sm font-semibold text-[#333333]">💭 情感分布</h4>
+                            </div>
+                            <div className="p-5">
+                              <div className="grid grid-cols-3 gap-3">
+                                {Object.entries(message.analysis.summary.sentimentDistribution).map(([sent, count]) => {
+                                  const colors = sentimentColors[sent];
+                                  const percentage = message.analysis!.summary.total > 0
+                                    ? Math.round((count / message.analysis!.summary.total) * 100)
+                                    : 0;
+                                  return (
+                                    <div key={sent} className={`${colors.bg} border rounded-lg p-3 text-center`}>
+                                      <div className={`text-lg font-bold ${colors.text}`}>{count}</div>
+                                      <div className={`text-xs ${colors.text} mt-1`}>{sent}</div>
                                       <div className="text-xs text-gray-400 mt-1">{percentage}%</div>
                                     </div>
                                   );
@@ -539,27 +584,40 @@ export default function Home() {
                             </div>
                             <div className="divide-y divide-[#EAEAEA] max-h-80 overflow-y-auto">
                               {message.analysis.categories.slice(0, 10).map((cat, idx) => {
-                                const colors = categoryColors[cat.category];
+                                const dimColors = categoryColors[cat.dimension];
+                                const sentColors = sentimentColors[cat.sentiment];
                                 return (
-                                  <div key={idx} className="px-5 py-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                      <span className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
-                                        {cat.lineNumber || '-'}
-                                      </span>
-                                      <span className={`px-2 py-1 text-xs font-medium rounded-lg ${colors.bg} ${colors.text}`}>
-                                        {cat.category}
-                                      </span>
-                                      <span className="text-xs text-[#888888] max-w-xs truncate">{cat.reason}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-blue-500 rounded-full"
-                                          style={{ width: `${cat.confidence}%` }}
-                                        />
+                                  <div key={idx} className="px-5 py-3">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <span className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded flex-shrink-0">
+                                          {cat.lineNumber || '-'}
+                                        </span>
+                                        <span className={`px-2 py-1 text-xs font-medium rounded-lg ${dimColors.bg} ${dimColors.text} flex-shrink-0`}>
+                                          {cat.dimension}
+                                        </span>
+                                        <span className={`px-2 py-1 text-xs font-medium rounded-lg ${sentColors.bg} ${sentColors.text} flex-shrink-0`}>
+                                          {cat.sentiment}
+                                        </span>
+                                        {cat.subDimensions && cat.subDimensions.length > 0 && (
+                                          <span className="text-xs text-gray-400 truncate">
+                                            ({cat.subDimensions.map(s => `${s.dimension}:${s.sentiment}`).join(', ')})
+                                          </span>
+                                        )}
                                       </div>
-                                      <span className="text-xs text-[#888888] w-10 text-right">{cat.confidence}%</span>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                          <div
+                                            className="h-full bg-blue-500 rounded-full"
+                                            style={{ width: `${cat.confidence}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-xs text-[#888888] w-10 text-right">{cat.confidence}%</span>
+                                      </div>
                                     </div>
+                                    {cat.reason && (
+                                      <p className="text-xs text-[#888888] mt-1 ml-6 truncate">{cat.reason}</p>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -571,25 +629,28 @@ export default function Home() {
                             </div>
                           </div>
 
-                          {/* 负面关键词 */}
+                          {/* 负面吐槽点 */}
                           <div className="bg-white rounded-xl shadow-sm border border-[#EAEAEA] overflow-hidden">
                             <div className="px-5 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                              <h4 className="text-sm font-semibold text-[#333333]">⚠️ 负面吐槽 Top {message.analysis.negativeKeywords.length}</h4>
+                              <h4 className="text-sm font-semibold text-[#333333]">⚠️ 负面吐槽 Top {message.analysis.negativeComplaints.length}</h4>
                             </div>
                             <div className="divide-y divide-[#EAEAEA]">
-                              {message.analysis.negativeKeywords.map((kw, idx) => (
+                              {message.analysis.negativeComplaints.map((complaint, idx) => (
                                 <div key={idx} className="px-5 py-4">
                                   <div className="flex items-center gap-3 mb-2">
                                     <span className="flex items-center justify-center w-6 h-6 bg-red-100 text-red-600 rounded-full text-xs font-bold">
                                       {idx + 1}
                                     </span>
-                                    <span className="text-base font-semibold text-[#333333]">{kw.keyword}</span>
+                                    <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
+                                      {complaint.dimension}
+                                    </span>
+                                    <span className="text-base font-semibold text-[#333333]">{complaint.complaint}</span>
                                     <span className="px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded-full">
-                                      出现 {kw.count} 次
+                                      出现 {complaint.count} 次
                                     </span>
                                   </div>
                                   <div className="ml-9 space-y-1">
-                                    {kw.examples.map((example, i) => (
+                                    {complaint.examples.map((example, i) => (
                                       <p key={i} className="text-xs text-[#888888] bg-gray-50 px-3 py-2 rounded-lg">
                                         &ldquo;{example}&rdquo;
                                       </p>
@@ -597,6 +658,11 @@ export default function Home() {
                                   </div>
                                 </div>
                               ))}
+                              {message.analysis.negativeComplaints.length === 0 && (
+                                <div className="px-5 py-4 text-center text-sm text-gray-500">
+                                  暂无负面吐槽
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

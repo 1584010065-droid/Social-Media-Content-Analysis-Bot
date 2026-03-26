@@ -5,7 +5,7 @@
 
 import {
   CategoryResult,
-  NegativeKeyword,
+  NegativeComplaint,
   AIResponse,
   ChunkResult,
   ChunkWithLineNumbers,
@@ -17,9 +17,10 @@ export interface AggregatedResult {
   categories: CategoryResult[];
   summary: {
     total: number;
-    categoryDistribution: Record<string, number>;
+    dimensionDistribution: Record<string, number>;
+    sentimentDistribution: Record<string, number>;
   };
-  negativeKeywords: NegativeKeyword[];
+  negativeComplaints: NegativeComplaint[];
   failedChunks: number[];
 }
 
@@ -31,16 +32,21 @@ export function aggregateResultsWithLineNumbers(
   allChunks: ChunkWithLineNumbers[]
 ): AggregatedResult {
   const allCategories: CategoryResult[] = [];
-  const categoryDistribution: Record<string, number> = {
+  const dimensionDistribution: Record<string, number> = {
     成分派: 0,
     包装派: 0,
     效果派: 0,
     价格派: 0,
     其他: 0,
   };
+  const sentimentDistribution: Record<string, number> = {
+    正向: 0,
+    中性: 0,
+    负向: 0,
+  };
 
-  // 负面关键词合并映射
-  const keywordMap = new Map<string, { count: number; examples: string[] }>();
+  // 负面吐槽点合并映射
+  const complaintMap = new Map<string, NegativeComplaint>();
 
   // 失败的分块索引
   const failedChunks: number[] = [];
@@ -51,34 +57,31 @@ export function aggregateResultsWithLineNumbers(
       // 使用降级结果
       const chunk = allChunks[chunkResult.chunkIndex];
       const fallback = createFallbackResult(chunk.lines, chunk.lineNumbers);
-      processAIResponse(fallback, allCategories, categoryDistribution, keywordMap);
+      processAIResponse(fallback, allCategories, dimensionDistribution, sentimentDistribution, complaintMap);
     } else if (chunkResult.result) {
       processAIResponse(
         chunkResult.result,
         allCategories,
-        categoryDistribution,
-        keywordMap
+        dimensionDistribution,
+        sentimentDistribution,
+        complaintMap
       );
     }
   }
 
-  // 排序并截取 Top 10 负面关键词
-  const negativeKeywords = Array.from(keywordMap.entries())
-    .map(([keyword, data]) => ({
-      keyword,
-      count: data.count,
-      examples: [...new Set(data.examples)].slice(0, 3), // 去重并限制数量
-    }))
+  // 排序并截取 Top 10 负面吐槽点
+  const negativeComplaints = Array.from(complaintMap.values())
     .sort((a, b) => b.count - a.count)
-    .slice(0, 10); // 返回 Top 10
+    .slice(0, 10);
 
   return {
     categories: allCategories,
     summary: {
       total: allCategories.length,
-      categoryDistribution,
+      dimensionDistribution,
+      sentimentDistribution,
     },
-    negativeKeywords,
+    negativeComplaints,
     failedChunks,
   };
 }
@@ -91,16 +94,21 @@ export function aggregateResults(
   allChunks: string[][]
 ): AggregatedResult {
   const allCategories: CategoryResult[] = [];
-  const categoryDistribution: Record<string, number> = {
+  const dimensionDistribution: Record<string, number> = {
     成分派: 0,
     包装派: 0,
     效果派: 0,
     价格派: 0,
     其他: 0,
   };
+  const sentimentDistribution: Record<string, number> = {
+    正向: 0,
+    中性: 0,
+    负向: 0,
+  };
 
-  // 负面关键词合并映射
-  const keywordMap = new Map<string, { count: number; examples: string[] }>();
+  // 负面吐槽点合并映射
+  const complaintMap = new Map<string, NegativeComplaint>();
 
   // 失败的分块索引
   const failedChunks: number[] = [];
@@ -110,34 +118,31 @@ export function aggregateResults(
       failedChunks.push(chunkResult.chunkIndex);
       // 使用降级结果
       const fallback = createFallbackResult(allChunks[chunkResult.chunkIndex]);
-      processAIResponse(fallback, allCategories, categoryDistribution, keywordMap);
+      processAIResponse(fallback, allCategories, dimensionDistribution, sentimentDistribution, complaintMap);
     } else if (chunkResult.result) {
       processAIResponse(
         chunkResult.result,
         allCategories,
-        categoryDistribution,
-        keywordMap
+        dimensionDistribution,
+        sentimentDistribution,
+        complaintMap
       );
     }
   }
 
-  // 排序并截取 Top 10 负面关键词
-  const negativeKeywords = Array.from(keywordMap.entries())
-    .map(([keyword, data]) => ({
-      keyword,
-      count: data.count,
-      examples: [...new Set(data.examples)].slice(0, 3), // 去重并限制数量
-    }))
+  // 排序并截取 Top 10 负面吐槽点
+  const negativeComplaints = Array.from(complaintMap.values())
     .sort((a, b) => b.count - a.count)
-    .slice(0, 10); // 返回 Top 10
+    .slice(0, 10);
 
   return {
     categories: allCategories,
     summary: {
       total: allCategories.length,
-      categoryDistribution,
+      dimensionDistribution,
+      sentimentDistribution,
     },
-    negativeKeywords,
+    negativeComplaints,
     failedChunks,
   };
 }
@@ -148,31 +153,42 @@ export function aggregateResults(
 function processAIResponse(
   response: AIResponse,
   categories: CategoryResult[],
-  distribution: Record<string, number>,
-  keywordMap: Map<string, { count: number; examples: string[] }>
+  dimensionDist: Record<string, number>,
+  sentimentDist: Record<string, number>,
+  complaintMap: Map<string, NegativeComplaint>
 ): void {
   // 处理分类
   for (const cat of response.categories) {
     categories.push(cat);
 
-    const category = cat.category as keyof typeof distribution;
-    if (distribution[category] !== undefined) {
-      distribution[category]++;
+    // 统计维度分布
+    if (dimensionDist[cat.dimension] !== undefined) {
+      dimensionDist[cat.dimension]++;
     } else {
-      distribution['其他']++;
+      dimensionDist['其他']++;
+    }
+
+    // 统计情感分布
+    if (sentimentDist[cat.sentiment] !== undefined) {
+      sentimentDist[cat.sentiment]++;
+    } else {
+      sentimentDist['中性']++;
     }
   }
 
-  // 处理负面关键词
-  for (const kw of response.negativeKeywords) {
-    if (keywordMap.has(kw.keyword)) {
-      const existing = keywordMap.get(kw.keyword)!;
-      existing.count += kw.count;
-      existing.examples.push(...kw.examples);
+  // 处理负面吐槽点
+  for (const complaint of response.negativeComplaints) {
+    const key = `${complaint.dimension}:${complaint.complaint}`;
+    if (complaintMap.has(key)) {
+      const existing = complaintMap.get(key)!;
+      existing.count += complaint.count;
+      existing.examples.push(...complaint.examples);
     } else {
-      keywordMap.set(kw.keyword, {
-        count: kw.count,
-        examples: [...kw.examples],
+      complaintMap.set(key, {
+        dimension: complaint.dimension,
+        complaint: complaint.complaint,
+        count: complaint.count,
+        examples: [...complaint.examples],
       });
     }
   }
@@ -187,14 +203,18 @@ export function mergePartialResults(
   newChunks: string[][]
 ): AggregatedResult {
   const allCategories = [...existing.categories];
-  const categoryDistribution = { ...existing.summary.categoryDistribution };
-  const keywordMap = new Map<string, { count: number; examples: string[] }>();
+  const dimensionDistribution = { ...existing.summary.dimensionDistribution };
+  const sentimentDistribution = { ...existing.summary.sentimentDistribution };
+  const complaintMap = new Map<string, NegativeComplaint>();
 
-  // 将现有负面关键词加入映射
-  for (const kw of existing.negativeKeywords) {
-    keywordMap.set(kw.keyword, {
-      count: kw.count,
-      examples: [...kw.examples],
+  // 将现有负面吐槽点加入映射
+  for (const complaint of existing.negativeComplaints) {
+    const key = `${complaint.dimension}:${complaint.complaint}`;
+    complaintMap.set(key, {
+      dimension: complaint.dimension,
+      complaint: complaint.complaint,
+      count: complaint.count,
+      examples: [...complaint.examples],
     });
   }
 
@@ -204,23 +224,19 @@ export function mergePartialResults(
     if (!chunkResult.success) {
       failedChunks.push(chunkResult.chunkIndex);
       const fallback = createFallbackResult(newChunks[chunkResult.chunkIndex]);
-      processAIResponse(fallback, allCategories, categoryDistribution, keywordMap);
+      processAIResponse(fallback, allCategories, dimensionDistribution, sentimentDistribution, complaintMap);
     } else if (chunkResult.result) {
       processAIResponse(
         chunkResult.result,
         allCategories,
-        categoryDistribution,
-        keywordMap
+        dimensionDistribution,
+        sentimentDistribution,
+        complaintMap
       );
     }
   }
 
-  const negativeKeywords = Array.from(keywordMap.entries())
-    .map(([keyword, data]) => ({
-      keyword,
-      count: data.count,
-      examples: [...new Set(data.examples)].slice(0, 3),
-    }))
+  const negativeComplaints = Array.from(complaintMap.values())
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
@@ -228,9 +244,10 @@ export function mergePartialResults(
     categories: allCategories,
     summary: {
       total: allCategories.length,
-      categoryDistribution,
+      dimensionDistribution,
+      sentimentDistribution,
     },
-    negativeKeywords,
+    negativeComplaints,
     failedChunks,
   };
 }

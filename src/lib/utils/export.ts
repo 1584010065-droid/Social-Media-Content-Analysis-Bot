@@ -9,15 +9,21 @@ import { AggregatedResult } from '../batch/aggregator';
  * 导出为 CSV 格式
  */
 export function exportToCSV(result: AggregatedResult): string {
-  const headers = ['行号', '原文', '分类', '置信度', '理由'];
+  const headers = ['行号', '原文', '维度', '情感', '子维度', '置信度', '理由'];
   const rows: string[][] = [];
 
   // 添加分类结果
   for (const cat of result.categories) {
+    const subDimsStr = cat.subDimensions
+      .map(s => `${s.dimension}(${s.sentiment})`)
+      .join('; ');
+
     rows.push([
       cat.lineNumber?.toString() || '0',
       escapeCSVField(cat.originalText),
-      cat.category,
+      cat.dimension,
+      cat.sentiment,
+      subDimsStr,
       cat.confidence.toString(),
       escapeCSVField(cat.reason),
     ]);
@@ -27,27 +33,35 @@ export function exportToCSV(result: AggregatedResult): string {
   rows.push([]);
 
   // 添加统计摘要
-  rows.push(['=== 统计摘要 ===', '', '', '', '']);
-  rows.push(['总评论数', result.summary.total.toString(), '', '', '']);
-  rows.push(['成分派', result.summary.categoryDistribution['成分派'].toString(), '', '', '']);
-  rows.push(['包装派', result.summary.categoryDistribution['包装派'].toString(), '', '', '']);
-  rows.push(['效果派', result.summary.categoryDistribution['效果派'].toString(), '', '', '']);
-  rows.push(['价格派', result.summary.categoryDistribution['价格派'].toString(), '', '', '']);
-  rows.push(['其他', result.summary.categoryDistribution['其他'].toString(), '', '', '']);
+  rows.push(['=== 统计摘要 ===', '', '', '', '', '', '']);
+  rows.push(['总评论数', result.summary.total.toString(), '', '', '', '', '']);
+  rows.push(['', '', '', '', '', '', '']);
+  rows.push(['维度分布:', '', '', '', '', '', '']);
+  rows.push(['成分派', result.summary.dimensionDistribution['成分派'].toString(), '', '', '', '', '']);
+  rows.push(['包装派', result.summary.dimensionDistribution['包装派'].toString(), '', '', '', '', '']);
+  rows.push(['效果派', result.summary.dimensionDistribution['效果派'].toString(), '', '', '', '', '']);
+  rows.push(['价格派', result.summary.dimensionDistribution['价格派'].toString(), '', '', '', '', '']);
+  rows.push(['其他', result.summary.dimensionDistribution['其他'].toString(), '', '', '', '', '']);
+  rows.push(['', '', '', '', '', '', '']);
+  rows.push(['情感分布:', '', '', '', '', '', '']);
+  rows.push(['正向', result.summary.sentimentDistribution['正向'].toString(), '', '', '', '', '']);
+  rows.push(['中性', result.summary.sentimentDistribution['中性'].toString(), '', '', '', '', '']);
+  rows.push(['负向', result.summary.sentimentDistribution['负向'].toString(), '', '', '', '', '']);
 
   // 添加空行分隔
   rows.push([]);
 
-  // 添加负面关键词
-  rows.push(['=== 负面关键词 Top 10 ===', '', '', '', '']);
-  rows.push(['关键词', '出现次数', '示例1', '示例2', '示例3', '']);
-  for (const kw of result.negativeKeywords) {
+  // 添加负面吐槽点
+  rows.push(['=== 负面吐槽点 Top 10 ===', '', '', '', '', '', '']);
+  rows.push(['维度', '吐槽内容', '出现次数', '示例1', '示例2', '示例3', '']);
+  for (const complaint of result.negativeComplaints) {
     rows.push([
-      kw.keyword,
-      kw.count.toString(),
-      escapeCSVField(kw.examples[0] || ''),
-      escapeCSVField(kw.examples[1] || ''),
-      escapeCSVField(kw.examples[2] || ''),
+      complaint.dimension,
+      escapeCSVField(complaint.complaint),
+      complaint.count.toString(),
+      escapeCSVField(complaint.examples[0] || ''),
+      escapeCSVField(complaint.examples[1] || ''),
+      escapeCSVField(complaint.examples[2] || ''),
     ]);
   }
 

@@ -7,18 +7,27 @@ export interface ChatMessage {
   content: string;
 }
 
+// 子维度类型
+export interface SubDimension {
+  dimension: '成分派' | '包装派' | '效果派' | '价格派' | '其他';
+  sentiment: '正向' | '中性' | '负向';
+}
+
 // 分类结果类型
 export interface CategoryResult {
   lineNumber: number;  // CSV 文件中的行号（从 2 开始）
-  category: '成分派' | '包装派' | '效果派' | '价格派' | '其他';
+  dimension: '成分派' | '包装派' | '效果派' | '价格派' | '其他';
+  sentiment: '正向' | '中性' | '负向';
+  subDimensions: SubDimension[];
   confidence: number;
   reason: string;
   originalText: string;
 }
 
-// 负面关键词类型
-export interface NegativeKeyword {
-  keyword: string;
+// 负面吐槽点类型
+export interface NegativeComplaint {
+  dimension: '成分问题' | '包装问题' | '效果问题' | '价格问题' | '笼统负面' | '其他问题';
+  complaint: string;
   count: number;
   examples: string[];
 }
@@ -26,7 +35,7 @@ export interface NegativeKeyword {
 // AI 响应类型
 export interface AIResponse {
   categories: CategoryResult[];
-  negativeKeywords: NegativeKeyword[];
+  negativeComplaints: NegativeComplaint[];
 }
 
 export async function callAI(
@@ -86,24 +95,52 @@ function parseAIResponse(content: string): AIResponse {
     // 验证并标准化返回格式
     return {
       categories: (parsed.categories || []).map((cat: any) => {
-        const category = cat.category || "其他";
-        // 确保分类是有效值
-        const validCategories = ['成分派', '包装派', '效果派', '价格派', '其他'] as const;
-        const finalCategory = validCategories.includes(category) ? category as CategoryResult['category'] : '其他';
+        // 验证主维度
+        const validDimensions = ['成分派', '包装派', '效果派', '价格派', '其他'] as const;
+        const dimension = validDimensions.includes(cat.dimension)
+          ? cat.dimension as CategoryResult['dimension']
+          : '其他';
+
+        // 验证情感
+        const validSentiments = ['正向', '中性', '负向'] as const;
+        const sentiment = validSentiments.includes(cat.sentiment)
+          ? cat.sentiment as CategoryResult['sentiment']
+          : '中性';
+
+        // 处理子维度
+        const subDimensions: SubDimension[] = (cat.subDimensions || []).map((sub: any) => ({
+          dimension: validDimensions.includes(sub.dimension)
+            ? sub.dimension as SubDimension['dimension']
+            : '其他',
+          sentiment: validSentiments.includes(sub.sentiment)
+            ? sub.sentiment as SubDimension['sentiment']
+            : '中性'
+        }));
 
         return {
-          category: finalCategory,
+          dimension,
+          sentiment,
+          subDimensions,
           confidence: Math.min(100, Math.max(0, Number(cat.confidence) || 50)),
           reason: cat.reason || "",
           originalText: cat.originalText || "",
-          lineNumber: 0,  // 默认值，由调用方设置实际行号
+          lineNumber: 0,
         };
       }),
-      negativeKeywords: (parsed.negativeKeywords || []).map((kw: any) => ({
-        keyword: kw.keyword || "",
-        count: Number(kw.count) || 1,
-        examples: (kw.examples || []).slice(0, 3)
-      })).slice(0, 3)
+      negativeComplaints: (parsed.negativeComplaints || []).map((item: any) => {
+        // 验证吐槽维度
+        const validComplaintDimensions = ['成分问题', '包装问题', '效果问题', '价格问题', '笼统负面', '其他问题'] as const;
+        const dimension = validComplaintDimensions.includes(item.dimension)
+          ? item.dimension as NegativeComplaint['dimension']
+          : '其他问题';
+
+        return {
+          dimension,
+          complaint: item.complaint || "",
+          count: Number(item.count) || 1,
+          examples: (item.examples || []).slice(0, 3)
+        };
+      }).slice(0, 3)
     };
   } catch (e) {
     throw new Error(`AI 返回内容解析失败: ${content.substring(0, 200)}`);

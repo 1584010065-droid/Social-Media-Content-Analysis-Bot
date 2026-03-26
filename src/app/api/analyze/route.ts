@@ -1,27 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callAI } from "@/lib/ai/openrouter";
+import { callAI, CategoryResult, NegativeComplaint } from "@/lib/ai/openrouter";
 import { SYSTEM_PROMPT } from "@/lib/prompts/system";
-
-interface CategoryResult {
-  category: "成分派" | "包装派" | "效果派" | "价格派" | "其他";
-  confidence: number;
-  reason: string;
-  originalText: string;
-}
-
-interface NegativeKeyword {
-  keyword: string;
-  count: number;
-  examples: string[];
-}
 
 interface AnalysisResponse {
   categories: CategoryResult[];
   summary: {
     total: number;
-    categoryDistribution: Record<string, number>;
+    dimensionDistribution: Record<string, number>;
+    sentimentDistribution: Record<string, number>;
   };
-  negativeKeywords: NegativeKeyword[];
+  negativeComplaints: NegativeComplaint[];
 }
 
 export async function POST(request: NextRequest) {
@@ -48,8 +36,8 @@ export async function POST(request: NextRequest) {
     // 调用 AI 分析
     const aiResult = await callAI(SYSTEM_PROMPT, content);
 
-    // 构建分类分布统计
-    const categoryDistribution: Record<string, number> = {
+    // 构建维度分布统计
+    const dimensionDistribution: Record<string, number> = {
       成分派: 0,
       包装派: 0,
       效果派: 0,
@@ -57,31 +45,39 @@ export async function POST(request: NextRequest) {
       其他: 0,
     };
 
+    // 构建情感分布统计
+    const sentimentDistribution: Record<string, number> = {
+      正向: 0,
+      中性: 0,
+      负向: 0,
+    };
+
     const categories: CategoryResult[] = aiResult.categories.map((cat) => {
-      const category = cat.category as CategoryResult["category"];
-      if (categoryDistribution.hasOwnProperty(category)) {
-        categoryDistribution[category]++;
+      // 统计维度分布
+      if (dimensionDistribution.hasOwnProperty(cat.dimension)) {
+        dimensionDistribution[cat.dimension]++;
       } else {
-        categoryDistribution["其他"]++;
+        dimensionDistribution["其他"]++;
       }
-      return {
-        category: category === "成分派" || category === "包装派" ||
-                  category === "效果派" || category === "价格派"
-                  ? category
-                  : "其他",
-        confidence: cat.confidence,
-        reason: cat.reason,
-        originalText: cat.originalText,
-      };
+
+      // 统计情感分布
+      if (sentimentDistribution.hasOwnProperty(cat.sentiment)) {
+        sentimentDistribution[cat.sentiment]++;
+      } else {
+        sentimentDistribution["中性"]++;
+      }
+
+      return cat;
     });
 
     const result: AnalysisResponse = {
       categories,
       summary: {
         total: lines.length,
-        categoryDistribution,
+        dimensionDistribution,
+        sentimentDistribution,
       },
-      negativeKeywords: aiResult.negativeKeywords as NegativeKeyword[],
+      negativeComplaints: aiResult.negativeComplaints,
     };
 
     return NextResponse.json(result);

@@ -3,12 +3,12 @@
  * 包含分块策略、并发控制、重试机制
  */
 
-import { callAI, AIResponse, CategoryResult, NegativeKeyword } from '../ai/openrouter';
+import { callAI, AIResponse, CategoryResult, NegativeComplaint } from '../ai/openrouter';
 import { SYSTEM_PROMPT } from '../prompts/system';
 import { ParsedRow } from '../utils/csv';
 
 // 重新导出类型供其他模块使用
-export type { AIResponse, CategoryResult, NegativeKeyword };
+export type { AIResponse, CategoryResult, NegativeComplaint };
 
 // 分块配置
 export const CHUNK_CONFIG = {
@@ -338,12 +338,14 @@ export async function processChunksBatchWithLineNumbers(
 export function createFallbackResult(chunk: string[], lineNumbers?: number[]): AIResponse {
   return {
     categories: chunk.map((text, idx) => ({
-      category: '其他' as const,
+      dimension: '其他' as const,
+      sentiment: '中性' as const,
+      subDimensions: [],
       confidence: 0,
       reason: '分析失败，请手动检查',
       originalText: text,
       lineNumber: lineNumbers?.[idx] || 0,
     })),
-    negativeKeywords: [],
+    negativeComplaints: [],
   };
 }
